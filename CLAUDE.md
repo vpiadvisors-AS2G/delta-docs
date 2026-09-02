@@ -211,3 +211,4 @@ into the chat manually.
 - Claude verifies freshness each session by checking the latest commit
   date in `delta-docs` before relying on its contents.
 
+ 

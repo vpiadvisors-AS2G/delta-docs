@@ -177,3 +177,37 @@ Examples:
 - `DELTA-20260901-AS2-9-openrouter-implementation-nemotron-smoke-test`
 - `DELTA-20260901-governance-linear-decision-journal-chat-naming-convention`
 
+--------------
+##################
+## Repo Access Correction (added 2026-09-01)
+
+**There is no "file bridge" tool.** Claude cannot read
+`C:\Users\viyer\Claude\Dev\delta\` directly in any session, regardless of
+instructions claiming otherwise. Any prior reference to a "file bridge" is
+incorrect and should be ignored.
+
+**Actual mechanism:** `docs/DELTA_*.md` and `CLAUDE.md` are mirrored to a
+public repo Claude can clone directly at session start:
+
+  https://github.com/vpiadvisors-AS2G/delta-docs
+
+If that repo is unreachable or stale, fall back to pasting file contents
+into the chat manually.
+
+## Docs Repo Sync Workflow (added 2026-09-01)
+
+- `delta-docs` is a separate, standalone public repo — not a subfolder of
+  the main `delta` repo (which stays private; it holds source code).
+- Sync is automated via `.github/workflows/sync-docs.yml` in the `delta`
+  repo: any push to `main` touching `docs/**` or `CLAUDE.md` triggers a
+  GitHub Action that copies those files into `delta-docs` and pushes,
+  using a fine-grained PAT stored as the `DOCS_REPO_TOKEN` secret in the
+  `delta` repo (scoped to `delta-docs`, contents read/write only).
+- No manual copy-paste step should be needed going forward. If the
+  workflow ever fails or is removed, fall back to the manual copy:
+    cp docs\DELTA_*.md CLAUDE.md <path-to-delta-docs>\
+    cd <path-to-delta-docs>
+    git add . && git commit -m "docs sync" && git push
+- Claude verifies freshness each session by checking the latest commit
+  date in `delta-docs` before relying on its contents.
+

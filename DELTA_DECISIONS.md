@@ -2,6 +2,13 @@
 
 Durable architecture/scope decisions. Each entry: what was decided, why, and who/when. Newest first.
 
+## 2026-09-04 — AS2-42: OTEL instrumentation baseline built
+
+- **Context:** AS2-42's own ticket description was stale in the same way AS2-9/AS2-10 were — it specified `lib/shared/telemetry.py` (Python) and Storage Queue propagation, both superseded decisions. Corrected in Linear before building.
+- **What was built:** `packages/shared/src/telemetry/` — `initTelemetry(agent)` (NodeSDK + OTLP trace/metric exporters, config-driven via `OTEL_EXPORTER_OTLP_ENDPOINT`), `createLogger(agent)` (structured JSON logs carrying `trace_id` from the active span automatically), `createMetrics(agent)` (the 4 named counters/histograms), and `injectTraceContext`/`extractTraceContext` (W3C traceparent propagation through Service Bus `applicationProperties`, typed structurally rather than importing `@azure/service-bus` since that package isn't a dependency yet). Wired into all 3 agents' `index.ts` (must run before function registration — done via an async IIFE around a dynamic `import()`, not a plain static import, since static imports are hoisted and would run before `initTelemetry` regardless of textual order; a plain top-level `await` was not available since these apps compile to CommonJS) and `health.ts` as a working example (real span + structured log per request).
+- **Scope not completed, and not completable yet:** the ticket's "Done When — single document produces one connected trace across all 3 agents" needs real Service Bus send/receive code, which doesn't exist until AS2-10/12/13 are built. The propagation helpers are ready for those tickets to call.
+- **Action required before this compiles:** `pnpm install` — 7 new `@opentelemetry/*` packages were added to `packages/shared/package.json` but the lockfile wasn't regenerated (no `pnpm` binary in the environment that wrote this code).
+
 ## 2026-09-04 — `document_references` vs `reference_numbers`: not duplicates, kept separate
 
 Resolved by inspecting both migrations directly (`20260826000008_reference_numbers.sql`, `20260903000001_schema_part2_operational.sql`), closing the open question flagged since AS2-52 (2026-09-02).

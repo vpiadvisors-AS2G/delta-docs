@@ -2,6 +2,15 @@
 
 Durable architecture/scope decisions. Each entry: what was decided, why, and who/when. Newest first.
 
+## 2026-09-04 — `document_references` vs `reference_numbers`: not duplicates, kept separate
+
+Resolved by inspecting both migrations directly (`20260826000008_reference_numbers.sql`, `20260903000001_schema_part2_operational.sql`), closing the open question flagged since AS2-52 (2026-09-02).
+
+- **`reference_numbers` (AS2-6):** a resolved, polymorphic reverse-lookup registry. `entity_table` + `entity_id` points at whatever real row already owns a given reference value, across many entity types (po/bol/pro/asn/load/container/seal/invoice/shipment/claim). Built *after* a value has been matched to something.
+- **`document_references` (AS2-52):** scoped only to `invoices` (real FK, not polymorphic), and captures what an invoice *asserts* about another document — e.g. "this invoice cites PO #X" — as raw extracted text, before/independent of that citation being resolved to a real row. Narrower reference-type set (po/despatch_advice/receipt/contract/bol/other).
+- **Decision: these are different pipeline stages, not the same concept.** `document_references` = unverified claim at extraction time; `reference_numbers` = verified pointer at resolution time. Keep both tables as-is, no merge.
+- **Real gap identified (not resolved, needs a design call):** nothing currently promotes a `document_references` row into `reference_numbers` once it's matched, and nothing marks a `document_references` row as resolved/unresolved. See [[DELTA_PLAN]] for follow-up.
+
 ## 2026-09-04 — Fixed: `scripts/postgres.mjs` now loads `.env.local` itself
 
 - **Context:** `MIGRATION_DATABASE_URL` had to be manually exported in the shell before running `migrate`, or the script silently fell back to `postgres://postgres@localhost:5432/delta_dev` and reported "up to date" against the wrong database. Bit us twice on 2026-09-02 (AS2-6, then AS2-53 the same day).

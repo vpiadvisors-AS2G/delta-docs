@@ -2,6 +2,12 @@
 
 Durable architecture/scope decisions. Each entry: what was decided, why, and who/when. Newest first.
 
+## 2026-09-04 — Fixed: `scripts/postgres.mjs` now loads `.env.local` itself
+
+- **Context:** `MIGRATION_DATABASE_URL` had to be manually exported in the shell before running `migrate`, or the script silently fell back to `postgres://postgres@localhost:5432/delta_dev` and reported "up to date" against the wrong database. Bit us twice on 2026-09-02 (AS2-6, then AS2-53 the same day).
+- **Fix:** the script now loads `.env.local` itself via `dotenv` (already a dependency, same pattern `scripts/smoke-test-openrouter.ts` uses) before reading `process.env.MIGRATION_DATABASE_URL`. `dotenv`'s default `override: false` means an already-exported shell value still takes precedence, so this is additive.
+- **Follow-up flagged, not fixed this pass:** `scripts/smoke-test-openrouter.ts` uses bare `import "dotenv/config"`, which loads `.env` only, not `.env.local` — but the README states `.env.local` is the actual source of truth for `OPENROUTER_API_KEY` and other secrets. Same class of bug, different script. Needs the same treatment.
+
 ## 2026-09-04 — Exposed Supabase credentials rotated
 
 Confirmed done by Venkatesh.

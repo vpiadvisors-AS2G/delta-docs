@@ -179,20 +179,33 @@ Examples:
 
 --------------
 ##################
-## Repo Access Correction (added 2026-09-01)
+## Repo Access Correction (updated 2026-09-04)
 
-**There is no "file bridge" tool.** Claude cannot read
-`C:\Users\viyer\Claude\Dev\delta\` directly in any session, regardless of
-instructions claiming otherwise. Any prior reference to a "file bridge" is
-incorrect and should be ignored.
+**File bridge access is surface-dependent — it depends on Cowork vs. plain
+claude.ai chat, not on the session.**
 
-**Actual mechanism:** `docs/DELTA_*.md` and `CLAUDE.md` are mirrored to a
-public repo Claude can clone directly at session start:
+- **Claude Cowork** has a device bridge and CAN read
+  `C:\Users\viyer\Claude\Dev\delta\` (and other local folders) directly,
+  once the folder is connected. This is the current mechanism in active use.
+- **Plain claude.ai chat has no device bridge** and cannot reach local
+  Windows paths at all. The 2026-09-01 note above ("there is no file bridge")
+  was written from a chat session and wrongly generalized "I can't do this"
+  into "this doesn't exist." That was incorrect for Cowork and caused
+  confusion between the two surfaces.
+- **Decision (2026-09-04): use Cowork exclusively for Project DELTA.**
+  Running both chat and Cowork on this project was a likely root cause of
+  the doc/Linear/codebase split-brain state found this session — chat
+  sessions could only ever see the `delta-docs` mirror (which lags real
+  commits), while Cowork sessions saw the live repo. Do not use plain
+  claude.ai chat for this project going forward.
+
+**Fallback mechanism (still valid, chat-only):** `docs/DELTA_*.md` and
+`CLAUDE.md` are mirrored to a public repo cloneable at session start:
 
   https://github.com/vpiadvisors-AS2G/delta-docs
 
-If that repo is unreachable or stale, fall back to pasting file contents
-into the chat manually.
+Use this mirror only if Cowork's device bridge is unavailable. Verify
+freshness against the latest commit date before relying on it.
 
 ## Docs Repo Sync Workflow (added 2026-09-01)
 

@@ -32,7 +32,7 @@ Every table carries `tenant_id uuid NOT NULL`, a CHECK constraint, and an RLS po
 
 RLS policies resolve the tenant through one helper: `current_tenant_id()`.
 
-**Foreign keys between tenant-scoped tables must be composite, never a bare `id` reference.** Postgres foreign-key checks always bypass RLS (by design — see the Postgres docs on row security and referential integrity). A child table with `col uuid references parent(id)` lets a session scoped to tenant A insert a row whose `col` points at a tenant-B parent row, and the FK check will happily follow it — RLS on the parent never gets a say. The fix: `UNIQUE (tenant_id, id)` on the parent, then `FOREIGN KEY (tenant_id, col) REFERENCES parent (tenant_id, id)` on the child, so the FK check itself enforces the tenant match. AS2-6 landed this pattern across parties/hierarchies/network/agreements after an ultrareview catch (see `20260826000012_composite_tenant_fks.sql`) — every child FK added in AS2-52/AS2-53 (and beyond) must follow it from the start, not get patched in after the fact.
+**Foreign keys between tenant-scoped tables must be composite, never a bare `id` reference.** Postgres foreign-key checks always bypass RLS (by design — see the Postgres docs on row security and referential integrity). A child table with `col uuid references parent(id)` lets a session scoped to tenant A insert a row whose `col` points at a tenant-B parent row, and the FK check will happily follow it — RLS on the parent never gets a say. The fix: `UNIQUE (tenant_id, id)` on the parent, then `FOREIGN KEY (tenant_id, col) REFERENCES parent (tenant_id, id)` on the child, so the FK check itself enforces the tenant match. AS2-6 landed this pattern across counterparties/hierarchies/network/agreements after an ultrareview catch (see `20260826000012_composite_tenant_fks.sql`) — every child FK added in AS2-52/AS2-53 (and beyond) must follow it from the start, not get patched in after the fact.
 
 ### 3. Portability contract
 
@@ -118,7 +118,7 @@ Sprint 1 order (2026-08-25 → 09-08), corrected 2026-08-26:
 
 1. **AS2-7** — GitHub monorepo, branch strategy, CI/CD. Blocks everything.
 2. **AS2-8** — Functions scaffold + local dev setup.
-3. **AS2-6** — Schema part 1: party, reference, location, network (36 entities).
+3. **AS2-6** — Schema part 1: counterparty, reference, location, network (36 entities).
 4. **AS2-52** — Schema part 2: order, shipment, receipt, billing (24 entities).
 5. **AS2-53** — Schema part 3: links, settlement, dispute, ops (22 entities).
 6. **AS2-9** — OpenRouter routing config.

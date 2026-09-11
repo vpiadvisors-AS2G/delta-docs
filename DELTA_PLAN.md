@@ -26,3 +26,10 @@ Forward-looking work items that don't fit in a single Linear issue yet, or that 
 
 - **AS2-91 (new): extraction_fields → standard entity tables.** Nothing transforms extracted EAV rows into `invoices`/`order_lines`/`bills_of_lading`/`proof_of_delivery`/etc. Both matching layers (document-matching wrapper, deduction engine) only run against hand-built fixtures today — this blocks running either against a real document.
 - **AS2-92 (new): call-site wiring.** Confirmed via grep — zero real callers of `matchOrderLine`/`matchCarrierContract`/`matchBolPod` anywhere in `apps/`. Blocked on AS2-66 (Service Bus).
+
+## 2026-09-10 — AS2-91 done, both surfaced gaps resolved/tracked
+
+- **AS2-91 is done** (all 5 doc types, merged to main `0f9ba37`, verified against real `wim_dev` data). See [[DELTA_STATE]] for full detail.
+- **AS2-92 (call-site wiring) remains the next real gap** — nothing invokes the transforms or the match engine automatically. Still blocked on AS2-66 (Service Bus, no namespace provisioned per the no-spend-without-approval constraint).
+- **New follow-up ticket AS2-94 (Manufacturer Item Master)** — created 2026-09-10, separate from AS2-47 (carrier/retailer golden records) per Venkatesh's explicit correction: PO/BOL/invoice line items resolve against the *manufacturer's* item master (weight/class/dimensions — the freight-math source of truth), not the retailer's SKU. `items` table needs to be tenant(manufacturer)-scoped with a manufacturer item_key/GTIN as the primary resolution key; a `retailer_item_xref` table is secondary/optional. AS2-91's interim item resolution (`transform-po-queries.ts`) is a known stopgap pending this.
+- **Rate Contract transform never resolves `contract_lines.lane_id`** — deliberately deferred, needs location/geography MDM (larger scope than AS2-47/AS2-94, not built). Lane-agnostic rating works; lane-scoped rating doesn't yet.

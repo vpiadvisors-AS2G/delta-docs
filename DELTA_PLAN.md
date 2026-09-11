@@ -21,3 +21,8 @@ Forward-looking work items that don't fit in a single Linear issue yet, or that 
 
 - AS2-9 — OpenRouter routing config (`usage_events` table still needs applying)
 - AS2-42 — OTEL baseline
+
+## 2026-09-10 — Two new gaps surfaced reviewing the matching pipeline end-to-end
+
+- **AS2-91 (new): extraction_fields → standard entity tables.** Nothing transforms extracted EAV rows into `invoices`/`order_lines`/`bills_of_lading`/`proof_of_delivery`/etc. Both matching layers (document-matching wrapper, deduction engine) only run against hand-built fixtures today — this blocks running either against a real document.
+- **AS2-92 (new): call-site wiring.** Confirmed via grep — zero real callers of `matchOrderLine`/`matchCarrierContract`/`matchBolPod` anywhere in `apps/`. Blocked on AS2-66 (Service Bus).

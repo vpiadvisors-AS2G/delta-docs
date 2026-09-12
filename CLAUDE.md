@@ -246,6 +246,20 @@ made" — that's for the decision itself. This is the safety net for
 anything that didn't rise to that bar but should still not be lost when
 the session closes.
 
+### 8. Determinism is tested, not assumed (added 2026-09-12)
+
+Any change touching reconciliation/matching SQL must ship with a
+determinism regression test: run the query twice against a frozen
+fixture dataset (covering a clean match, a partial match, and a flagged
+over-billing case) and assert byte-identical output. This runs in CI on
+every push touching that logic — not a one-time manual check.
+
+Every Linear ticket must define its acceptance check (input → expected
+output) before Claude Code implementation starts. A ticket without a
+stated expected output is not ready to build.
+
+"It looks deterministic" is not a passing state. The test passing is.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

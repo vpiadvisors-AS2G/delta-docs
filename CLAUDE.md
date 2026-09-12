@@ -269,3 +269,15 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+### 9. Every PR traces to a Linear ticket (added 2026-09-12)
+
+CI gate on every PR: branch name or PR title must contain a valid
+AS2-<n> reference. Missing reference blocks merge — no exceptions,
+including hotfixes (open a ticket first, even retroactively for
+emergency fixes).
+
+Rationale: DORA metrics and due-diligence audits depend on this link
+existing by construction, not by convention someone remembered to
+follow.
+

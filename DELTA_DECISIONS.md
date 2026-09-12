@@ -269,3 +269,13 @@ Lesson: reading only the *original* table-creation migration for a table's shape
 ## 2026-09-10 — Integration test passes clean: AS2-91 verified against real wim_dev data
 
 After the fixes above, `pnpm run test:integration:eav` run by Venkatesh against the real `wim_dev` database: all 5 transforms (invoice/po/bol/pod/rate) reached `status: "transformed"`, typecheck clean across all 5 packages, 39 seeded fixture rows created and cleaned up with no leftover errors. AS2-91 (all 5 doc types) is verified end-to-end, not just unit-tested — closes out AS2-91 pending only a merge-to-main decision.
+
+## 2026-09-11 — AS2-66 approved: Service Bus Standard tier (topics), not Basic
+
+Confirmed by Venkatesh in chat ("let us build the real deal ... Standard tier, ~$13/month"). Supersedes an earlier in-chat suggestion of Basic tier, corrected before any provisioning happened.
+
+**Why Standard, not Basic:** Basic supports queues only — no topics/subscriptions. This codebase's messaging layer (`packages/shared/src/azure/service-bus.ts`, `INGESTION_TOPIC`/`EXTRACTION_COMPLETE_TOPIC`) and CLAUDE.md's own architecture rule ("communicate through queues and a Service Bus topic... a new agent must be addable by subscribing to the topic, with zero changes to existing agents") already commit to topic/pub-sub choreography, not point-to-point queues. `extraction-complete-topic` already has two independent consumer types in the plan — AS2-92 (transform layer) and the Reconciliation Agent's trigger (AS2-3) — which is the exact case a queue can't serve (competing consumers split messages instead of each subscriber getting its own copy).
+
+**Billing shape (confirmed, not previously documented here):** Standard tier is a fixed hourly base charge (~$0.045/hr, ~$10/month) that runs continuously regardless of usage — it does not scale to zero when idle — plus the first 13M operations/month included, then tiered overage pricing beyond that. At this project's volume, real cost ≈ the base charge alone, consistent with the existing ~$13/month footprint projection in DELTA_CONSTRAINTS.md (Service Bus base + margin for other pieces).
+
+**Status: approved, not yet provisioned.** No `az` commands have been run. Provisioning (namespace + `ingestion-topic` + `extraction-complete-topic` + subscriptions) is the next actual step for AS2-66, to be run from Venkatesh's own terminal per the standing no-spend/no-sandbox-Azure-CLI pattern. AS2-92 (call-site wiring) is unblocked to proceed once AS2-66's real namespace/topics exist — until then it stays HTTP-triggered per the existing interim pattern in `transform-invoice.ts` et al.

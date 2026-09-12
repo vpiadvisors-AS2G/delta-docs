@@ -97,3 +97,9 @@ Checked every branch besides `main` for real unmerged work rather than assuming:
 - `worktree-extraction-handler-as2-12-13` — showed "16 commits ahead" by commit-ancestry, but a real file diff against `main` showed **zero difference** in `apps/agent-ingestion/` — the work was already on `main` via a squash-merge (PR #4), which doesn't preserve commit ancestry even though the content landed. Confirmed via `git diff --stat`, not commit count. Being deleted (local + remote) as a final step.
 
 **Only `main` remains after this cleanup — no other branch has real unmerged work.**
+
+## AS2-66 — approved, not yet provisioned — 2026-09-11
+
+Venkatesh approved Standard tier (~$13/month) for Azure Service Bus, correcting an initial Basic-tier suggestion once it was checked against the codebase's existing topic/pub-sub design (`service-bus.ts`, `INGESTION_TOPIC`/`EXTRACTION_COMPLETE_TOPIC`) and CLAUDE.md's architecture rule. Full reasoning in DELTA_DECISIONS.md (2026-09-11 entry).
+
+Nothing provisioned yet — no `az` commands run this session. Next step: Venkatesh provisions the namespace + topics from his own terminal, then AS2-92 (call-site wiring, still HTTP-triggered today) can be built against the real topic instead of the interim HTTP endpoints.

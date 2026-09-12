@@ -224,6 +224,28 @@ freshness against the latest commit date before relying on it.
 - Claude verifies freshness each session by checking the latest commit
   date in `delta-docs` before relying on its contents.
 
+### 7. End-of-session checklist (added 2026-09-12)
+
+Every working session ends with these three steps, regardless of whether
+a decision was made. This is not conditional on "something significant
+happened" — Rule 2 (update timing) covers the immediate case; this covers
+the session boundary itself.
+
+1. **Docs sync** — confirm docs/DELTA_*.md and CLAUDE.md are committed and
+   pushed to `delta`, and that the sync to `delta-docs` fired (check
+   Actions tab or next session's clone timestamp).
+2. **Obsidian raw write** — append the session's raw log to
+   `C:\Users\viyer\OneDrive\Documents\Obsedian\Follow-ups\Follow-ups\AS2G-3WIMandFOB\01-Raw`,
+   as a new dated file, after checking that folder for the most recent
+   existing log so nothing is duplicated or overwritten.
+3. **Linear update** — reflect any ticket status changes, new tickets, or
+   scope notes discussed in the session.
+
+This does not replace Rule 2's "update immediately when a decision is
+made" — that's for the decision itself. This is the safety net for
+anything that didn't rise to that bar but should still not be lost when
+the session closes.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

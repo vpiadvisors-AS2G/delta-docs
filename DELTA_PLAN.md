@@ -37,3 +37,8 @@ Forward-looking work items that don't fit in a single Linear issue yet, or that 
 ## 2026-09-11 — AS2-66 approved (Standard tier); AS2-92 next once provisioned
 
 AS2-66 (Service Bus) approved by Venkatesh at Standard tier — real cost ~$13/month, not the Basic-tier <$1/month first floated in chat (Basic can't do topics; this architecture needs topics). Not yet provisioned. Once it is, AS2-92 (wire the 5 EAV transforms + reconciliation trigger to real Service Bus messages instead of HTTP) becomes buildable for real.
+
+## 2026-09-12 — AS2-95 done (Tier-3 vision 400 fix); AS2-96 opened for doc misclassification
+
+- **AS2-95 is done** — bad free-tier vision model (`nex-agi/nex-n2.5-mini:free`, 400'd on real image payloads) swapped for `inclusionai/ling-3.0-flash-vl:free`, plus the real underlying bug: `decideTier()` was escalating any Tier-2-incomplete document straight to Tier 3 vision with no check that it actually had an image, so a `text/plain` document got its raw bytes sent to OpenRouter as fake "image data." Fixed in `tier-routing.ts`/`text-extraction.ts`/`extraction-handler.ts`. See [[DELTA_STATE]] for full detail.
+- **New follow-up ticket AS2-96 (doc-type misclassification)** — created 2026-09-12, surfaced by the same real-doc harness run. `classify-doc-type.ts` misclassifies a Rate Confirmation as `bol` and a POD (real image) as `invoice`. The Rate Confirmation misclassification is why it still fails extraction post-AS2-95: Tier 1/2 check completeness against `bol`'s required fields, not `rate`'s. Also flagged for the same investigation: the Tier-1 70% coverage threshold letting a clean PO complete despite a missing required field (`retailer_identifier`) — may or may not be related, confirm during AS2-96.

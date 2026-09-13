@@ -98,8 +98,37 @@ Checked every branch besides `main` for real unmerged work rather than assuming:
 
 **Only `main` remains after this cleanup — no other branch has real unmerged work.**
 
-## AS2-66 — approved, not yet provisioned — 2026-09-11
+## AS2-66 — NOT approved — 2026-09-11
 
-Venkatesh approved Standard tier (~$13/month) for Azure Service Bus, correcting an initial Basic-tier suggestion once it was checked against the codebase's existing topic/pub-sub design (`service-bus.ts`, `INGESTION_TOPIC`/`EXTRACTION_COMPLETE_TOPIC`) and CLAUDE.md's architecture rule. Full reasoning in DELTA_DECISIONS.md (2026-09-11 entry).
+Same-day Standard-tier approval was retracted by Venkatesh ("I am not approving Service Bus Standard tier"). No Service Bus spend is authorized. AS2-66 stays blocked/unprovisioned. AS2-92 remains blocked on the queue-triggered path; only the HTTP-triggered interim stand-in is viable until further notice. See DELTA_DECISIONS.md (2026-09-11 retraction entry).
 
 Nothing provisioned yet — no `az` commands run this session. Next step: Venkatesh provisions the namespace + topics from his own terminal, then AS2-92 (call-site wiring, still HTTP-triggered today) can be built against the real topic instead of the interim HTTP endpoints.
+
+## 2026-09-11 -- AS2-92 schema stress-test: rate_confirmations + po_number chain, verified
+
+Built and verified (tests 153/153 passing, typecheck clean across all 5 workspace projects), not yet applied to Supabase:
+
+- New `rate_confirmations` table (migration `20260911000002`) -- shipment-specific accepted carrier rate, distinct from standing `contract_lines`. Storage only; matchCarrierContract does not yet consult it (follow-up).
+- `match_review_queue` (migration `20260911000001`, still unapplied) doc_type extended with `'rate_confirmation'`.
+- Invoice PO-number chain closed: `po_number` added to invoice's `REQUIRED_FIELDS_BY_DOC_TYPE` and Tier-1 regex extraction; `transform-invoice.ts` now writes a `document_references` row (reference_type='po') when a PO number is found, and returns it on `TransformInvoiceResult`. New `insertDocumentReference` query, `documentReferenceInsertSchema` in `@delta/shared`.
+- `classify.ts`'s `MatchResult` (ambiguous/unmatched) now carries a `reason: string`, feeding `match_review_queue.reason` once matchers write there.
+
+Still not done: matchOrderLine/matchCarrierContract/matchBolPod/matchDeduction still have no real caller (the original AS2-92 gap) -- this closed the *data* gaps found while scoping that work, not the wiring itself. matchBolPod's dual-call-path overlap with transform-pod/bol.ts is still an open decision (paused, not resolved). po_line_number (line-level PO matching) remains unbuilt, tracked separately.
+
+Two migrations pending your `psql`/Supabase apply: `20260911000001_match_review_queue.sql`, `20260911000002_rate_confirmations.sql`.
+
+- **`supabase/migrations/20260911000001_match_review_queue.sql`, `20260911000002_rate_confirmations.sql`** — **applied for real to `wim_dev` on 2026-09-11** by Venkatesh via `pnpm run db:migrate`. Verified directly via `psql`: both tables present with exact expected shape (constraints, RLS `tenant_isolation`, `trg_audit_log`/`trg_set_updated_at`, FKs on `rate_confirmations` to shipments/carriers/documents all composite `(tenant_id, id)`), `delta_meta._migrations` shows 2 rows for `20260911%`. AS2-92 wiring (matchOrderLine service+endpoint, matchDeduction review-queue writes, transform-pod refactor to shared matchBolPod) now has real tables to write to — not yet smoke-tested end-to-end against live data (next step).
+
+- **AS2-92 end-to-end verified against real `wim_dev` data (2026-09-11)**: extended `apps/agent-reconciliation/scripts/integration-test-eav-transforms.ts` (`pnpm run test:integration:eav`) with two `matchOrderLine` checks — matched (PO seeded via transformPo, invoice seeded via transformInvoice with a matching po_number, `matchOrderLine` called for real, `invoices.order_id` confirmed updated in the DB) and unmatched (invoice with a po_number that resolves to no order, confirmed a real row lands in `match_review_queue` and is read back). Both passed. `matchDeduction`'s and `transform-pod`'s review-queue writes are still only covered by unit tests with fake deps, not this real-DB script — flagged as optional follow-up if full e2e coverage of all three call sites is wanted.
+
+- **Ingestion↔Reconciliation field-vocabulary fix verified (2026-09-11)**: `pnpm --filter agent-ingestion test` 40/40 passed, `pnpm run typecheck` clean across all 5 workspace projects. See [[DELTA_DECISIONS]] for the bug and fix detail. Next: real end-to-end run of the 10-document freight test suite through the actual Tier-1/2/3 ingestion pipeline into reconciliation.
+
+## 2026-09-12 — AS2-95 done: Tier-3 vision 400 fixed (bad model + DQ-escalation routing bug)
+
+Real-doc harness run surfaced this: `OPENROUTER_MODEL_EXTRACTION` (`nex-agi/nex-n2.5-mini:free`) claimed vision support in OpenRouter's catalogue but 400'd on real `image_url` payloads. Swapped to `inclusionai/ling-3.0-flash-vl:free`, confirmed 200 OK against a live POD image via a standalone script before touching `.env.local`.
+
+That fix alone didn't close it — re-running the harness showed the POD (real image) doc now passing, but the Rate Confirmation (`text/plain`) doc still 400'd on the same, working model. Root cause was one level up: `tier-routing.ts`'s `decideTier()` escalated to Tier 3 vision on any Tier-2 completeness failure with no check that the document actually had an image — a text document that failed Tier 2 had its raw bytes base64'd and sent to `callOpenRouterVision` as "image data," which OpenRouter correctly rejects regardless of model choice.
+
+Fixed: `decideTier()` now takes `hasVisualRepresentation` and returns a new `DQ_ESCALATION_NO_IMAGE` outcome (stays Tier 2, no vision call) when there's no image/PDF to escalate to; throws `UnroutableDocumentError` into the existing `insertFailedExtraction` path rather than calling Tier 3 on non-image bytes. Same fix applied to `text-extraction.ts`'s unrecognized-mime-type fallback, which had the identical bug (silently treated any unmapped mime type as "route to vision"). `pnpm --filter agent-ingestion test` 45/45 passing (added coverage for both new failure paths, rewrote the one existing test that had encoded the bug as expected behavior), `pnpm run typecheck` clean across all 5 workspace projects. Confirmed against the real-doc harness: Rate Confirmation now fails cleanly with `DQ_ESCALATION_NO_IMAGE`, never calls vision. Linear: AS2-95, marked Done.
+
+Not fixed here, tracked as follow-on: the Rate Confirmation's Tier-2 failure is itself downstream of a classification bug (`classify-doc-type.ts` misclassifies it as `bol`, so completeness is checked against the wrong doc_type's required fields) — see Open Action Items below.

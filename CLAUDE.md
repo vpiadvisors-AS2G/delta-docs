@@ -150,6 +150,27 @@ When something durable gets decided in a session — an architecture choice, a c
   Rationale, Revisit History (as comments).
 - Markdown = "what's true today." Linear = "why we got here."
 
+### 1a. DELTA_STATE.md vs. the Obsidian wiki (02-Wiki) — added 2026-09-16
+- `docs/DELTA_STATE.md` is the single source of truth for CURRENT status:
+  what's done, what's blocked, what's next, open action items. Every new
+  session reads this first (per the session workflow above) and it alone.
+- The Obsidian vault's `02-Wiki` folder holds DEEPER reference material only —
+  how a subsystem works, the fuller narrative behind a build, cross-linked
+  detail a newcomer would need — generated from `01-Raw` session logs by a
+  separate summarization tool. It must NOT restate current status, sprint
+  progress, or open-item lists; those live only in DELTA_STATE.md, and the
+  wiki should link to it rather than duplicate it. `01-Raw` itself is
+  write-only from any session's perspective — never read the whole folder
+  for context, only check the latest file before appending.
+- If wiki content and DELTA_STATE.md ever disagree, DELTA_STATE.md wins.
+
+### 1b. Tech debt — tracked in Linear only, added 2026-09-16
+- Known shortcuts, deferred fixes, and shipped-with-gaps items are tracked
+  EXCLUSIVELY as Linear issues carrying the `tech-debt` label (AS2G-Delta
+  team). Do not also list them in DELTA_STATE.md's "Open Action Items," in
+  the wiki, or anywhere else — one list, filtered by that label, is the
+  answer to "what did we skip."
+
 ### 2. Update timing
 - Update markdown + Linear immediately when a decision is made — not saved 
   for an ambiguous "end of session" trigger.

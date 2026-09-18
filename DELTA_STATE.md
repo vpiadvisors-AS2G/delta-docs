@@ -162,3 +162,28 @@ Prior session (2026-09-17) had implemented AS2-105/111/80/81/109/108/110/21/22/2
 **Merged**: `git push origin main` — local main (16 commits ahead, spanning back to AS2-22) is now `origin/main` at `45d1909`. Nothing provisioned, no spend incurred.
 
 Still open: AS2-92's queue-triggered path remains blocked on Service Bus (not approved — see DELTA_DECISIONS 2026-09-11). `integration-test-real-documents.ts` still doesn't chain into `agent-reconciliation`'s transform-*/matchOrderLine — same documented follow-up as before, now with a clean ingestion-side baseline to build it against.
+
+## 2026-09-18 (later) — Demo re-prioritization: AS2-117 upload UI + AS2-118 dashboard rewrite built, verified in sandbox, committed. Real click-through still blocked on env config.
+
+Demo date moved to 2026-09-24. Batch prompt rewritten mid-session around a 6-step demo script; AS2-18/AS2-15 and most infra/spend tickets explicitly cut for this week (see DELTA_PLAN). Reprioritized to: AS2-16 (already drafted) → AS2-117 (upload UI, top priority — "nothing is demonstrable without it") → AS2-118 (dashboard).
+
+**AS2-16 (reason-code engine)**: committed `82c3dc6` earlier this session (see prior entry above — draft review caught a real sign-convention bug in the SHORT_SHIP mapping before commit). **Migration now confirmed applied** — Venkatesh ran `pnpm run db:migrate` clean. This session still cannot reach `*.supabase.co` from either the device shell or the cloud sandbox (egress allowlist permits npm registry, not Supabase — confirmed via direct DNS/HTTPS test from both), so the live schema/data was not independently re-verified; trusting Venkatesh's confirmation.
+
+**AS2-117 (browser file upload) — commit `1e659ee`.** New `/upload` page + form (`useFormState`/`useFormStatus`) → server action writes to `incoming/<tenant_id>/<filename>` via new `uploadIncomingDocument()` blob helper → calls `postIngestionMessageHttp` synchronously (no 5-min poll wait), same HTTP-trigger path as AS2-102. Nav link added. Verified in the cloud sandbox: `@delta/shared` build clean, `@delta/web` typecheck clean, `@delta/web` build succeeds for `/upload` (same as every other authenticated page, once dummy Supabase env vars are supplied — matches the pre-existing pattern on `/`, `/documents`, `/review-queue`).
+
+**AS2-118 (dashboard reconciliation outcomes) — commit `029a7d2`.** `getDashboardSummary` rewritten to read `reconciliations` (previously read `extractions.reconciliation_status`, which only recorded "does this need reconciling," never the outcome) — counts by status, total delta at risk (variance+disputed, unresolved). Dashboard now lists recent reconciliations with invoice number + reason code, linking to a new `/reconciliations/[id]` detail page: expected vs actual vs delta, each variance condition with its own reason code, plus supporting `reconciliation_lines`. Verified in the cloud sandbox: typecheck clean, build succeeds. **Real gap found, not fixed here, filed as AS2-120 (tech-debt)**: no confidence score exists anywhere on `reconciliations`/`variance_conditions` — only `extraction_fields.confidence` exists, which measures something different (extraction confidence, not match confidence). Shipped without one rather than fabricating a number.
+
+**Both new pages verified only via typecheck/build/test in the cloud sandbox — NOT via an actual browser click-through.** This session cannot run long-lived local dev services (Azurite, `func start`, `next dev`) through the device-bridge's ephemeral-call model. Real environment gap, confirmed by inspection: `.env.local` (both root and `apps/web/`) has none of `AZURE_STORAGE_CONNECTION_STRING`, `MESSAGING_MODE`, `EXTRACTION_HANDLER_HTTP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` set. Needs Venkatesh to set these (local-http mode against Azurite) and run the upload once, on his own machine, before the code above can be called demo-verified rather than just build-verified.
+
+### Where the 6-step demo script actually stands right now
+
+1. Log in — pre-existing (AS2-21), not touched this session, presumed working.
+2. Upload a document from the browser — **code built (AS2-117), not click-through tested.** Blocked on env config above.
+3. Extract/classify in seconds — the underlying HTTP-trigger path (AS2-102/AS2-12/13) is pre-existing and was run against real docs in the 2026-09-18 verification pass; AS2-117 calls it synchronously instead of waiting on the poller. Not re-verified through the browser this session.
+4. Match against invoice, reason code + confidence — matching/reason-code logic real (AS2-16, this session + earlier). **Confidence score does not exist** (AS2-120) — this part of the demo script needs to be dropped or reworded.
+5. Dashboard: matched/variance counts, dollars at risk — **code built (AS2-118)**, not click-through tested.
+6. Open one result, per-line detail with reason code — **code built (AS2-118's `/reconciliations/[id]`)**, not click-through tested.
+
+Net: steps 2, 5, 6 are code-complete and sandbox-verified but need one real local run to confirm; step 4's confidence-score sub-ask isn't buildable without a schema/product decision (AS2-120); step 1/3 are pre-existing and presumed fine but not re-checked this session.
+
+**Linear updated**: AS2-16/AS2-117/AS2-118 all carry 2026-09-18 status notes with commit SHAs; AS2-120 filed (tech-debt) for the missing confidence score.

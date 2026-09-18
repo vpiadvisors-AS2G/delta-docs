@@ -142,3 +142,23 @@ Fixed: `DOC_TYPE_PATTERNS` (`extraction-config.ts`) is now `WeightedPattern[]` p
 `pnpm --filter agent-ingestion test` 39/39 passing (5 new regression tests: Rate Confirmation vs BOL with shared vocabulary, POD image filename, underscore/hyphen filename normalization), `pnpm run typecheck` clean across all 5 workspace projects. Confirmed against the real-doc harness: all 10/10 documents now show `classified_doc_type` matching `expected_doc_type`, including Doc 2 (`rate`, was `bol`) and Doc 4 (`pod`, was `invoice`). Linear: AS2-96, marked Done. PR #7, squash-merged to main.
 
 Not addressed here (flagged in the ticket as possibly separate, confirmed separate on inspection): the Tier-1 70% coverage threshold letting a clean PO (Doc 1) complete despite a missing required field (`retailer_identifier`) is a `completeness.ts`/threshold-tuning question, unrelated to classification.
+
+## 2026-09-18 — Verification pass: all 10 queued tickets confirmed working end-to-end, merged to main
+
+Prior session (2026-09-17) had implemented AS2-105/111/80/81/109/108/110/21/22/23 and committed locally but never verified against a real environment. This session ran the full verification chain Venkatesh required before merge, found and fixed real bugs along the way, then pushed.
+
+**AS2-23 gap closed**: review-queue resolve action now does a real `match_links` insert (from `match_review_queue`'s stored candidates, reusing `matchCarrierContract`'s contract-line shape) instead of a stub — server re-fetches the queue row and validates the chosen candidate server-side rather than trusting client-submitted form fields.
+
+**Real bugs found and fixed while verifying (not environment noise)**:
+- `extraction-handler.test.ts`'s fake-Supabase fixture never initialized the `ingestion_failures` table (added for AS2-108), so every Tier-2/3 failure test threw on `inserted[table]!.push`.
+- `retry-with-backoff.ts`'s `PermanentApiError.cause` needed an `override` modifier (TS4114, ES2022 lib).
+- `document-detail.ts`: `disputes!inner(...)`'s generated type still allows an empty array (Supabase doesn't encode `!inner`'s cardinality) — non-null asserted with a comment, matching existing repo convention.
+- `apps/web`: `@types/react`/`@types/react-dom` 18.3.x don't declare `useFormState`/`useFormStatus` or the form-action-as-server-action merge point in their stable channel (only in `canary.d.ts`), even though react-dom@18.3.1's runtime ships both. Added a documented ambient `.d.ts` augmentation (`apps/web/src/types/react-dom-form-hooks.d.ts`) rather than upgrading React.
+- `apps/agent-reconciliation/package.json` was missing `@supabase/supabase-js` as a declared dependency — `reconciliation-poller.ts` imports it directly, only ever worked before via phantom/hoisted resolution. A real (non-hoisted) `pnpm install` on Venkatesh's machine caught it immediately via `tsc`.
+- `integration-test-real-documents.ts` (the real e2e script): its `ExtractionIO` literal stubbed `publishCompletion` but not `moveToProcessed`/`moveToError`, both required on the interface. `tsx` doesn't type-check, so this ran for months(?) without ever surfacing as a build error — every document actually completed correctly, then the script threw "is not a function" afterward, logged and swallowed by `runExtraction`'s own try/catch. Easy to miss next to a wall of "[OK]" lines. Added no-op stubs with a comment (blob storage is bypassed for this script by design, so there's no real blob to move).
+
+**All four of Venkatesh's gates verified on his own machine**, in order: `pnpm install` (clean), `pnpm run db:migrate` (all 4 pending migrations — `ingestion_failures`, `reconciliation_status`, `document_reference_line_number`, `lane_geography_mdm` — already applied), `pnpm test` (all 5 workspaces, 86+54 = matches expected counts across `@delta/shared`/`agent-ingestion`/`agent-reconciliation`), `pnpm run typecheck` (all 5 workspaces clean), and a real end-to-end run of the 10-document Gemini test set (`pnpm run test:integration:real-docs`) against real `wim_dev` — all classified doc_types matched expected, tier routing correct, doc 8's intentional missing-carrier case correctly failed rather than silently passing.
+
+**Merged**: `git push origin main` — local main (16 commits ahead, spanning back to AS2-22) is now `origin/main` at `45d1909`. Nothing provisioned, no spend incurred.
+
+Still open: AS2-92's queue-triggered path remains blocked on Service Bus (not approved — see DELTA_DECISIONS 2026-09-11). `integration-test-real-documents.ts` still doesn't chain into `agent-reconciliation`'s transform-*/matchOrderLine — same documented follow-up as before, now with a clean ingestion-side baseline to build it against.

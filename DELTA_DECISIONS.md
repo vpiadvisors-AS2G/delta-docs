@@ -369,3 +369,35 @@ The markdown-fence and poller-dedup fixes above had no existing unit coverage an
 2. Restarted the host. First poll cycle: `files_queued: 1` for the test file, confirming the poller now correctly re-queues a document whose extraction never completed instead of silently skipping it forever.
 
 All three AS2-102 Done-When items are now verified against real behavior (poller timer cycle, not just direct HTTP), not just unit tests. Linear AS2-102 moved to Done.
+
+## 2026-09-18 — File poller is the transport for v1; Service Bus deferred
+
+**Decision (Venkatesh, explicit):** The Azurite/file-poller pattern is the
+inter-agent transport for v1. Azure Service Bus is deferred — not rejected,
+not blocking. Revisit when there is a concrete reason to, not on a schedule.
+
+**Why this is being written down:** this question resurfaced in nearly every
+session for two weeks because it existed only as a "blocker" note scattered
+across AS2-10, AS2-66, AS2-81 and AS2-92, never as a decision. Each session
+rediscovered it and re-litigated it. That stops here.
+
+**What this decision means in practice:**
+
+- No ticket is "blocked on Service Bus" any more. A ticket whose acceptance
+  test was written against Service Bus is verified against the poller path
+  instead. AS2-10's Done-When ("appears on the Service Bus topic") is read as
+  "handed off to the extraction handler" and is satisfied.
+- The poller's known limits are accepted for v1, with eyes open: a ~5-minute
+  latency floor, no dead-letter queue, and no redelivery count. These are
+  fine at current scale and for the Demo MVP.
+- `packages/shared/src/azure/service-bus.ts` stays in the repo and is not
+  deleted. `MESSAGING_MODE` continues to select between transports, so
+  adopting Service Bus later is a config change, not a rewrite.
+- The 2026-09-11 note recording "AS2-66 approved at Standard tier"
+  (commit `c29e87c`) is **superseded by this entry.** No Service Bus spend is
+  approved. Current spend remains $0/month.
+
+**What would force a revisit:** a customer or volume requirement that the
+latency floor cannot meet, or a need for poison-message handling that the
+poller genuinely cannot provide. Not a code-review opinion, and not a
+recurring conversation.

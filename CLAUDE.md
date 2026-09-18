@@ -260,7 +260,13 @@ the session boundary itself.
    as a new dated file, after checking that folder for the most recent
    existing log so nothing is duplicated or overwritten.
 3. **Linear update** — reflect any ticket status changes, new tickets, or
-   scope notes discussed in the session.
+   scope notes discussed in the session. **Closing a ticket means recording
+   its commit SHA(s) and the merge point in the ticket body**, not just
+   flipping the status. A ticket marked Done with no SHA is not traceable:
+   a diligence reviewer cannot get from the ticket to the code, which is
+   the entire point of Rule 9. Added 2026-09-18 after a verification pass
+   found ten tickets whose work had shipped and merged while every one of
+   them still sat open in Linear.
 
 This does not replace Rule 2's "update immediately when a decision is
 made" — that's for the decision itself. This is the safety net for
@@ -297,6 +303,17 @@ CI gate on every PR: branch name or PR title must contain a valid
 AS2-<n> reference. Missing reference blocks merge — no exceptions,
 including hotfixes (open a ticket first, even retroactively for
 emergency fixes).
+
+**Direct pushes to `main` are covered separately** (added 2026-09-18).
+`require-ticket-ref.yml` only fires on `pull_request` events, and work on
+this repo routinely lands by committing straight to `main` — so for
+months that gate had never had the opportunity to fail, and 10 of 30
+recent commits carried no ticket reference at all, including one that
+shipped a schema migration. `require-ticket-ref-push.yml` now checks
+commit messages on push to `main`. Its only exemptions are merge commits
+and subjects starting with `docs:` or `chore:`. If a code change ever
+hides behind a `chore:` prefix to dodge the gate, tighten the exemption
+list rather than disabling the workflow.
 
 Rationale: DORA metrics and due-diligence audits depend on this link
 existing by construction, not by convention someone remembered to

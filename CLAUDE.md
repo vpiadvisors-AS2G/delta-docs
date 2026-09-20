@@ -287,6 +287,39 @@ stated expected output is not ready to build.
 
 "It looks deterministic" is not a passing state. The test passing is.
 
+## "Delta design" — the UI standard (set 2026-09-20)
+
+When Venkatesh says **"Delta design"**, he means this published artifact:
+
+  **DELTA Freight Overbilling Detection**
+  https://claude.ai/artifact/HutMmZyqbbML4itXqZDvkE
+
+That canvas is the visual standard for the product. Read it before building
+or changing any screen — `Artifact` tool, `action: "read"`, that URL. Do not
+redesign from written description when the artifact is reachable, and do not
+substitute a different look because a spec paragraph reads ambiguously.
+
+Two other artifacts exist from 2026-09-13 and are NOT the standard:
+Freight Billing App (B4hFpraFvURYVyKEYuBprq) and Reconciliation Dashboard
+(VkuvDmZuvASn1TrrBidMhf). Superseded — do not build from them.
+
+**Where the written rules live:** the `delta-ui-uxv1` skill holds the locked
+terminology, personas, metric definitions, colour tokens, chart-type rules
+and accessibility requirements. It is authoritative for *rules*; the
+artifact above is authoritative for *look*. Where they genuinely conflict,
+raise it rather than silently picking one — a known conflict is recorded
+below.
+
+**Known conflict, unresolved as of 2026-09-20:** the skill mandates a top
+nav on Deep Navy plus Public Sans / IBM Plex Mono typography; the artifact
+canvas uses a left sidebar and system fonts. Both cannot be "the standard"
+for shell and type. Flagged to Venkatesh 2026-09-20, awaiting his call.
+
+**Implementation today:** `apps/web/src/app/globals.css` carries the design
+system; the app shell is `apps/web/src/app/(app)/layout.tsx`. Tokens are
+defined once as CSS custom properties — never introduce a new hex value for
+something a token already covers.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -310,10 +310,19 @@ artifact above is authoritative for *look*. Where they genuinely conflict,
 raise it rather than silently picking one — a known conflict is recorded
 below.
 
-**Known conflict, unresolved as of 2026-09-20:** the skill mandates a top
-nav on Deep Navy plus Public Sans / IBM Plex Mono typography; the artifact
-canvas uses a left sidebar and system fonts. Both cannot be "the standard"
-for shell and type. Flagged to Venkatesh 2026-09-20, awaiting his call.
+**Conflict resolved 2026-09-20 — the canvas wins on look.** The skill
+mandated a top nav plus Public Sans / IBM Plex Mono; the canvas uses a left
+sidebar and the system font stack. Venkatesh chose the canvas. So:
+
+- **Shell and typography: follow the artifact canvas.** Left sidebar on Deep
+  Navy, system font stack, no webfont link.
+- **Everything else: follow `delta-ui-uxv1`.** Terminology (never "party" or
+  "counterparty" — name the role), personas, the five metric definitions,
+  colour tokens and their semantics, chart type per data shape, WCAG AA.
+
+Do not re-litigate the shell or the fonts. If the skill text is ever updated
+to match, delete this note; until then the override stands and this is where
+it is recorded.
 
 **Implementation today:** `apps/web/src/app/globals.css` carries the design
 system; the app shell is `apps/web/src/app/(app)/layout.tsx`. Tokens are

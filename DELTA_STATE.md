@@ -1,5 +1,72 @@
 # DELTA_STATE
 
+## 2026-09-20 — First real end-to-end dry run; Delta design applied; UI/RBAC gaps found
+
+**The front half of the pipeline is proven, in a browser, on a real document.**
+Not mocked, not unit-tested — clicked through. A freight invoice was uploaded
+at `/upload` and came out the other end as `processed/11111111-1111-1111-1111-111111111111/2026-09-20/Freight Invoice1.jpeg`.
+
+Proven this session:
+
+1. **Login** — Supabase Auth plus a tenant-linked `users` row. No user existed
+   and there is no signup flow; the account had to be created by hand in the
+   Supabase dashboard plus a `users` insert with `status='active'` (the column
+   defaults to `'invited'`, and the app silently bounces anything else back to
+   login). Any fresh environment needs those two manual steps — a real gap.
+2. **Upload (AS2-117)** — first live exercise. Writes to
+   `incoming/<tenant>/`, then calls the extraction handler's HTTP trigger
+   directly rather than waiting for the poll cycle.
+3. **Extraction** — fields pulled correctly; classified `invoice`, so the
+   `frt` trap (no transform exists for that doc type) did not fire.
+4. **File lifecycle (AS2-13)** — code written 2026-09-18, never run until now.
+   Success moved the blob to `processed/<tenant>/<date>/`. A failure would
+   have gone to `error/` with an `ingestion_failures` row.
+5. **Automatic transform (AS2-81)** — the reconciliation poller picks up
+   `reconciliation_status='pending'` and runs the doc-type transform unattended.
+
+**Where it stops, and this is the whole remaining gap.** `matchShipmentLegContract`
+identifies which contract line governs a shipment and returns
+`matched | lane_unresolved | no_ship_date | review_queued`. It never computes a
+delta, never writes a `reconciliations` row, never assigns a reason code. The
+deduction side has this piece (`match-deduction-compute.ts` + `match-deduction.ts`);
+freight has no equivalent. So a freight invoice leaves the dashboard at zero and
+the eight seeded overbilling reason codes unused. That is the next session's job —
+see `docs/BATCH_PROMPT.md`.
+
+**Delta design standard established.** "Delta design" now means the published
+artifact canvas https://claude.ai/artifact/HutMmZyqbbML4itXqZDvkE. Applied to the
+web app in `3d8440e`: sidebar shell, KPI strip with semantic colour (orange for
+unresolved exposure, green for confirmed savings only), status chips, banner
+bands, Ask Delta panel. Recorded in CLAUDE.md under "Delta design". **Conflict
+resolved:** the `delta-ui-uxv1` skill mandated top nav plus Public Sans / IBM
+Plex Mono; the canvas uses a sidebar and system fonts. Venkatesh chose the
+canvas for look; the skill remains authoritative for terminology, personas,
+metric definitions, colour semantics, chart types and accessibility. Do not
+re-litigate.
+
+**Environment traps found (all cost real time; documented in BATCH_PROMPT.md):**
+`apps/web/.env.local` is separate from the root `.env.local` and Next.js does not
+read the root one — credentials must be set in both. A leftover `func` process
+silently held port 7071 and would have served stale pre-AS2-117 code. Azurite
+stores blobs as GUID files with a JSON metadata db, so files copied into
+`.azurite/incoming/` on disk are invisible to it. Last weekend's three test
+uploads went to tenant `81abd2d8-...`, which is not seeded — the poller correctly
+skipped them as an unknown tenant, silently, which is how a weekend of test
+uploads went nowhere with no visible error.
+
+**Persona/RBAC gap confirmed (AS2-101).** `users.tenant_id` is `NOT NULL` with an
+FK and there is no role column of any kind. Delta Admin is therefore structurally
+impossible today, not merely unbuilt — a cross-tenant user cannot be represented
+even by hand-editing the database. Tenant-level personas (Company Admin / Analyst
+/ Executive) have nothing to hang off either. Evidence added as a comment on
+AS2-101. AS2-63 and AS2-89 look like duplicates of it.
+
+**Not a demo blocker, noted:** the tenant was renamed from "Acme Retail Group" to
+Meridian Fabrication Co — the seed name contradicted its own data (a retail group
+whose customer is a retailer). AS2-17's tolerance-config CRUD remains unfinished
+and uncommitted (no `page.tsx`), deliberately left out of the design commit.
+
+
 Current state of the DELTA build. Update this when the state changes — not a changelog, a snapshot of "where things actually are right now."
 
 ## Schema
@@ -187,3 +254,43 @@ Demo date moved to 2026-09-24. Batch prompt rewritten mid-session around a 6-ste
 Net: steps 2, 5, 6 are code-complete and sandbox-verified but need one real local run to confirm; step 4's confidence-score sub-ask isn't buildable without a schema/product decision (AS2-120); step 1/3 are pre-existing and presumed fine but not re-checked this session.
 
 **Linear updated**: AS2-16/AS2-117/AS2-118 all carry 2026-09-18 status notes with commit SHAs; AS2-120 filed (tech-debt) for the missing confidence score.
+
+## 2026-09-20 — AS2-123/124 built + verified: overbilling engine produces a real dollar finding with a reason code. AS2-125 checked (no change needed). AS2-126 filed.
+
+Per `docs/BATCH_PROMPT.md`'s Step 1-3: build the freight overbilling comparison engine, wire it to auto-trigger, confirm the UI renders it.
+
+**AS2-123 (comparison engine) — commit `e0bd3dc`.** `match-overbilling-compute.ts` (pure) + `match-overbilling.ts` (I/O orchestrator) + `functions/match-overbilling.ts` (HTTP endpoint), same split as `match-deduction-compute.ts`/`match-deduction.ts`. Compares billed freight/accessorial/detention charges against the resolved contract line and shipment evidence; five outcomes: rate_mismatch, weight_discrepancy, accessorial_unauthorized, detention_unsupported, duplicate_invoice. `contract_lines.lane_id` is still unresolved (no geography MDM — AS2-59/94), so contract-line selection is deliberately lane-agnostic (carrier + mode + freight_class + weight band); a charge with no lane-agnostic candidate returns `rate_unresolved` rather than guessing, same posture as `matchShipmentLegContract`'s `lane_unresolved`. Reason codes resolved via a new `OverbillingCategory` mapping in `reason-code.ts`, run alongside (not replacing) the existing `condition_type`-based resolver — the 8 seeded overbilling reason codes don't collapse cleanly onto the 6 DB `condition_type` values.
+
+**Real gap found while building, not fought, filed as AS2-126 (tech-debt)**: `invoices.shipment_id` is never populated anywhere in the transform pipeline — only `carrier_id` is set. There is no freight-side equivalent of the deduction side's `po_number` → `document_references` → `matchOrderLine` chain. Worked around with a documented single-shipment-per-carrier fallback (`resolveShipmentIdForCarrier`/`findDuplicateInvoiceForCarrier` in `queries.ts`) — correct only when a carrier has exactly one shipment in the demo tenant's seed data. Real fix needs a PRO/BOL-number extraction + `document_references` row + a shipment-matching resolver built on the already-existing-but-unused `fn_match_bol_pod` SQL function.
+
+**AS2-124 (poller auto-trigger) — commit `c76c8af`.** `reconciliation-poller.ts`'s `resolveOutcome` now calls `matchOverbilling` in the same poll cycle once a freight invoice's transform yields an `invoice_id` — same "persisted status + periodic poll" pattern as the rest of the poller (AS2-81). Never throws: not-applicable and shipment-unresolved outcomes are folded into the recorded result string, not treated as a row failure.
+
+**AS2-125 (dashboard/detail rendering) — checked, no code change needed.** Read both `getDashboardSummary` and `getReconciliationDetail` end to end: neither has any deduction-mode-specific assumption. Both key off `reconciliations`/`reconciliation_lines`/`variance_conditions` generically (`entity_table`, `condition_type`, `reason_code_id`) and both already handle a null `invoice_id`/`order_id`. An overbilling reconciliation (null `order_id`, `entity_table='invoice_charges'`/`'invoices'`) renders through the exact same code path as a deduction one. Confirmed by inspection, not by a live click-through (see environment note below).
+
+**Verification: `pnpm --filter @delta/shared run build`, `pnpm -r typecheck`, `pnpm -r test` all pass** — `packages/shared` 69, `agent-ingestion` 54, `agent-reconciliation` 127 (127 = 103 pre-existing + 24 new, added for AS2-123's acceptance criteria: rate match/mismatch/unresolved, weight discrepancy, accessorial authorized/unauthorized, detention supported/unsupported, duplicate invoice, multi-category variance-sum capping). Two real type errors surfaced by the actual `tsc` run (a `find()` result typed `T | undefined` returned where `T | null` was expected; a type-narrowing cast across `TransformFn`'s deliberately-erased `{status: string}` return type) — both fixed, not environment noise.
+
+**New environment trap, added to the traps this project already knows about**: the device-bridge mount (`C:\Users\viyer\Claude\Dev\delta` reached from Cowork's cloud sandbox) is unusably slow for `node_modules`-scale filesystem operations — a `pnpm install` there did not complete inside repeated 180-second command budgets, and even a `find`/`du` over `.pnpm-store`/`.azurite`/`.postgres` timed out. Root cause isolated to those three local-service data directories (`.azurite`, `.postgres`, `.pnpm-store`) and `node_modules` itself — thousands of small files/symlinks over the mount, not the tracked source tree (a `tar` of source only, excluding those, is ~2MB and fast). Worked around this session by tarring the source tree (excluding `node_modules`/`.git`/`.azurite`/`.postgres`/`.pnpm-store`/`.next`/`graphify-out`/`graveyard`/build output), staging that single small archive into the cloud sandbox's own fast local disk, and running the real verification gates there — a scratch copy used only for running `pnpm install`/`build`/`typecheck`/`test` fast; every source edit was still made on, and is only kept in, the real repo via the device bridge. Worth remembering for any future session doing similar work: don't attempt `pnpm install`/`node_modules` operations directly over the device-bridge mount.
+
+**Still not click-through tested**: same limitation as the 2026-09-18 entry above — this session cannot run long-lived local dev services (Azurite, `func start`, `next dev`) through the device-bridge's ephemeral-call model, so AS2-124's auto-trigger and AS2-125's rendering are sandbox/code-verified, not confirmed by an actual upload → poller → dashboard run. Needs Venkatesh to run once on his own machine.
+
+### Demo script status update (see 2026-09-18 entry above for steps 1-3)
+
+Step 4 ("Match against invoice, reason code + confidence") for the **overbilling** path is now code-complete: a freight invoice with a rate/weight/accessorial/detention mismatch produces a real `reconciliations` row with a dollar `delta_amount` and a headline reason code, exactly like the deduction path already did. The confidence-score sub-ask (AS2-120) is still unbuilt for both modes. Steps 5-6 (dashboard, detail view) already render whatever mode a reconciliation belongs to with no additional work — confirmed by AS2-125's check above.
+
+**Linear updated**: AS2-123/124/125/126 all carry 2026-09-20 status notes with commit SHAs (AS2-125 notes "no change needed, verified by inspection" — no commit to reference).
+
+## 2026-09-20 — First real dollar finding produced end to end; two upstream gaps found and filed (AS2-127)
+
+Re-ran the same test invoice (extraction `0683ec17-3973-4d10-9d0b-b5917390c64b`, INV-908776) that AS2-124's poller had already marked `completed`/`carrier_unresolved`. Root cause was not a bug in AS2-123/124 — that code was never reached:
+
+1. **Carrier mismatch.** The extracted `carrier_identifier` ("Apex Logistics Solutions") matched neither of the two seeded demo carriers. `findCarrierByIdentifier` correctly bailed at `carrier_unresolved` before writing anything.
+2. **Zero contracts/shipments seeded** for the demo tenant at all — even a resolved carrier would have had nothing to match against.
+3. **Real gap, filed as AS2-127**: the extraction itself only ever produced 7 header-level `extraction_fields` (invoice_number, carrier_identifier, subtotal, total_payable, etc.) — zero `invoice_charge[n].*` rows. `buildInvoiceInsert` only builds `invoice_charges` from that EAV pattern, so even a fully-seeded carrier/contract/shipment would have transformed into a zero-charge invoice.
+
+**Fix applied**: `supabase/migrations/20260920000001_freight_overbilling_demo_seed.sql` (commit `9f1b6d6`) — a carrier matching the real extracted identifier, one active contract + contract_line (flat rate $4,500, no lane/class/weight restriction), one shipment/leg/item, and two `invoice_charge[n].*` extraction_fields rows reusing the real EAV convention (not a bypass insert). Applied directly via the Supabase MCP connector against the already-provisioned free-tier project — data-only, no new infra/spend — and recorded in `delta_meta._migrations` so `pnpm run db:migrate` won't try to reapply it.
+
+**Result, confirmed on the dashboard**: a real `variance` reconciliation — expected $4,500.00, actual $6,020.50, delta **$1,520.50** — split `rate_mismatch` ($475, billed rate vs. contract rate) + `accessorial_unauthorized` ($1,045.50, no contract term). Produced through the real `transformInvoice` → `matchOverbilling` pipeline, first live confirmation that AS2-123/124/125 work end to end.
+
+**AS2-127 filed (tech-debt)**: freight invoice extraction never emits `invoice_line[n].*`/`invoice_charge[n].*` fields — the same convention gap `docs/DELTA_DECISIONS.md` (2026-09-10) already flagged as unadopted by the extraction handler, now confirmed against real ingested data, not just by inspection. Every future freight invoice hits this same wall until AS2-12/13 are extended. AS2-126 (shipment linkage) got a status note with the same commit SHA — its workaround was exercised live for the first time and held up.
+
+**Repo state**: AS2-123/124/126 (3 commits) pushed to `origin/main` this session.

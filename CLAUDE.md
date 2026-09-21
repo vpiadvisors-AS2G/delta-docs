@@ -361,3 +361,28 @@ Rationale: DORA metrics and due-diligence audits depend on this link
 existing by construction, not by convention someone remembered to
 follow.
 
+### 10. Loop engineering — autonomous ticket queue, test-gated (added 2026-09-20)
+
+When Venkatesh asks Claude to "loop" or work a ticket queue autonomously
+(e.g. "work 18 hrs/day," "keep going until we run out of tokens"), this is
+what it means — there was no prior written definition, so this is the
+first one:
+
+- Claude works through a prioritized list of clearly-scoped tickets on its
+  own, without asking permission before each one.
+- Every change is test-gated: it ships only after its own tests pass
+  (Rule 8 still applies in full — determinism tests, not "looks right").
+  A ticket that can't be verified this way is not a candidate for the
+  autonomous queue.
+- Claude stops and asks — does not guess, does not proceed — the moment a
+  ticket would require: spend or infrastructure (Rule 1, no exceptions),
+  a schema change with real migration risk, or genuinely ambiguous scope
+  where more than one reasonable interpretation exists.
+- This is not unsupervised time-boxed grinding ("18 hours straight"). A
+  Cowork session processes what it's given turn by turn; it does not run
+  a literal clock in the background. The autonomous part is not needing a
+  go-ahead between tickets — not skipping the judgment calls above.
+- Every ticket worked this way still gets the end-of-session checklist
+  (Rule 7): docs updated, Linear closed with commit SHAs, nothing left
+  claiming "done" without a trace back to the commit.
+

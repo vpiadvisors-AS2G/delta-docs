@@ -401,3 +401,45 @@ rediscovered it and re-litigated it. That stops here.
 latency floor cannot meet, or a need for poison-message handling that the
 poller genuinely cannot provide. Not a code-review opinion, and not a
 recurring conversation.
+
+## 2026-09-20 — Reason-code build reuses existing schema instead of adding 6 new tables (AS2-129/130/131)
+
+**Decision:** the 6 deduction reason codes without dedicated schema (DAMAGED_GOODS, DEFECTIVE_RETURN, RETURN_UNAUTHORIZED, CHARGEBACK_LABEL, COOP_ADVERTISING, VOLUME_REBATE) plus CHARGEBACK_ASN are built against `dispute_items` — a generic, tenant-scoped, RLS'd polymorphic claims table (`entity_table`/`entity_id` + `claimed_amount` + `reason_code` + `status`) that shipped with the original schema migration (`20260904000001`) but had zero readers anywhere in the codebase until this session. No new tables or migrations were needed. Same pattern for FUEL_SURCHARGE_ERR: `fuel_surcharge_schedules`/`fuel_surcharge_indices` also pre-existed, unused, and now drive the calculation directly.
+
+**Why this is recorded here, not just in DELTA_STATE.md:** it changes what "an approved claim on file" means as evidence — an on-file, human-approved `dispute_items` row is the strongest signal available today for 6 reason codes (no damage-evidence/promo-terms/rebate-tier tables exist to check against instead), same approval-proxy posture `DETENTION_UNSUPPORTED` used before its own fix. A future session should not "discover" this gap again and build duplicate schema.
+
+**What would force a revisit:** if damage evidence, promo terms, or rebate-tier tables get built later, `resolveDeductionClaims` (`match-deduction-compute.ts`) should be updated to check those directly instead of trusting an approved claim at face value.
+
+**Reason-code coverage:** 17 of 18 seeded codes now have real matching logic (was 8 before this session). Only WRONG_LANE remains unbuilt — tracked as tech debt (AS2-129), blocked on a lane-resolution subsystem that does not exist yet (`contract_lines.lane_id` is hard-coded null).
+
+## 2026-09-20 — ACCESSORIAL_UNAUTHORIZED overstates what the engine actually checked
+
+**Found reviewing a live finding, not by inspection:** Venkatesh caught that a Rate Confirmation can carry an explicit accessorial rate term (e.g. "$75/hr detention, capped at $300") that the schema has nowhere to store. `contract_lines` holds one rate per lane/mode/freight_class/weight_band (the base freight rate only). `contract_terms` — the only other place a contract term lives — is restricted to five fixed `term_type` values (payment_terms, chargeback_policy, deduction_dispute_window, freight_dispute_window, invoicing_terms), none of them a priced accessorial.
+
+**Why this is recorded here, not just fixed silently:** ACCESSORIAL_UNAUTHORIZED is a customer-facing finding — the claim it makes ("this charge isn't covered by your contract") is stronger than what the engine actually verified ("no `contract_lines` row matches this charge type"). Those are different claims. Until a real accessorial-rate structure exists, every ACCESSORIAL_UNAUTHORIZED finding should be read as "we found no accessorial schedule in our data," not "we confirmed this is unauthorized" — worth saying out loud before this reaches a customer or a diligence conversation, not something to quietly paper over.
+
+**Not fixed here.** Needs a real accessorial-rate structure (rate, unit — e.g. per-hour — cap, charge type, tied to a contract) — schema work, not yet scoped. Recorded in `DELTA_Architecture_1.docx`/`.md` section 4.6a alongside the other reason-code coverage caveats.
+
+## 2026-09-20 (later) — ACCESSORIAL_UNAUTHORIZED gap fixed: contract_lines.charge_type added (AS2-132)
+
+**Closes the loop on the entry immediately above.** That entry said "not fixed here, schema work not yet scoped." Venkatesh's response was direct: "It is nonsensical to say we don't have fields in the DB. We should fill in the gaps where needed" — followed by "this table is at the core of our thesis — freight overbilling!! ... let us fix it right away." Scoped and shipped same session.
+
+**Fix:** `contract_lines.charge_type` (7-value enum, matches `invoice_charges.charge_type`), backfilled existing rows to `'freight'`, folded into the GIST exclude constraint so a freight-rate row and an accessorial-rate row can coexist for the same lane/mode/freight_class/weight-band/date scope instead of colliding as duplicates. `min_charge`/`max_charge`/`rate_basis` already existed (2026-09-09 hardening migration) and already fed `computeExpectedCharge()` — they just never got *called* for accessorial charges, because the accessorial branch only ever checked `invoice_charges.contract_line_id !== null`. That branch now resolves an accessorial-typed contract line the same lane-agnostic way the freight branch always has, and prices/caps it for real.
+
+**What this changes about ACCESSORIAL_UNAUTHORIZED, worth restating plainly:** it still means "unauthorized" when no accessorial-rate contract line exists at all (unchanged). It now *also* means "billed above the contracted rate/cap" when a line does exist — the finding is now a real priced comparison, not a boolean pointer check. This is the fix the 2026-09-20 entry above said this reason code needed before it could safely reach a customer or a diligence conversation.
+
+**Not done here (flagged, not silently skipped):** the rate-contract extraction prompt doesn't yet ask the AI for `contract_line[n].charge_type` — a real Ratecon accessorial line still extracts and defaults to `'freight'` until that prompt gap (parallel to AS2-127's fix on the invoice side) is closed too. Filed as follow-up, not built this session.
+
+Migration `20260920000002_contract_lines_charge_type.sql`, applied directly to the already-provisioned free-tier Supabase project — schema-only, no new infra/spend. Commit `452619e` (AS2-132).
+
+## 2026-09-21 — Freight charge taxonomy: classification layer, not a second matching engine (AS2-134)
+
+**Decision:** Venkatesh's 9-category/74-subcategory freight-audit taxonomy is implemented as an ADDITIVE classification/reporting layer on top of the existing 7-value `charge_type` "engine bucket" (freight, fuel_surcharge, accessorial, detention, allowance, promotional, other) — not a replacement, and not a second pricing/matching engine. Every one of the 74 subcategories maps to exactly one of the 7 existing buckets via a static lookup (`charge-taxonomy.ts`), so classification never requires new pricing logic. Confirmed with Venkatesh via an explicit clarifying question before building (scope: classification-only vs. full per-category rebuild) — "go for it" approved the classification-only default.
+
+**Why this is recorded here, not just DELTA_STATE.md:** this is exactly the kind of "how does your taxonomy actually drive pricing" question a customer or diligence reviewer would ask. The honest answer: overbilling still operates on the 7-bucket engine, per-subcategory, not per the 9 parent categories. Three of the 9 categories (Energy/market surcharges, Facility/appointment/time, Financial adjustments) split across two different engine buckets internally, because their subcategories genuinely price differently — e.g. a diesel fuel surcharge is fuel-index-checkable (`fuel_surcharge` bucket, real pricing logic), while a war-risk surcharge is market-driven with no dedicated pricing logic (`other` bucket, honestly out of scope, same posture `allowance`/`promotional`/`other` already had). Government/customs/tax and non-freight-pass-through categories are entirely `other` — the contract rate engine was never meant to price a customs duty or a pre-authorized pass-through service, and this taxonomy states that honestly rather than inventing pricing logic for it.
+
+**What this buys today:** fine-grained labeling for UI/reporting/audit trail — "reweigh" or "demurrage" reads very differently to an auditor than the generic bucket it prices like — without a multi-week rebuild before the 9/24 demo, and without silently defaulting most of the 74 categories to "other" (every code has a real, defensible engine-bucket mapping, documented inline in `charge-taxonomy.ts`).
+
+**What would force a revisit:** if Venkatesh wants overbilling/matching to actually operate at the category level (distinct rules for, say, customs duties vs. equipment charges), that is separate, much larger work — building real pricing/matching logic per category, not just relabeling. Flagged directly, not started.
+
+**No new lookup table.** `charge_category`/`charge_subcategory` are plain nullable `text` columns with CHECK constraints on `invoice_charges`/`contract_lines` directly — kept the taxonomy as compile-time TypeScript data (`CHARGE_TAXONOMY` in `packages/shared`) rather than a new DB reference table, which would otherwise need to satisfy CLAUDE.md Rule 2's tenant_id/RLS requirement despite being global, tenant-agnostic reference data. Migration `20260921124521_as2_134_charge_taxonomy.sql`, applied directly to the already-provisioned free-tier Supabase project — schema-only, no new spend. Commit `37979ae` (AS2-134).

@@ -423,3 +423,71 @@ Retesting AS2-136 on the same Apex Logistics invoice, extraction now failed outr
 **Linear:** AS2-137 created and closed same session with the commit SHA.
 
 **Repo state: 16 commits now local on `main`, unpushed** — `63eadbc` (AS2-137) added to the 15 from earlier. `git push origin main` is now overdue — recommend doing it before the next round of testing, not after.
+
+## 2026-09-21 (continued) — AS2-138: DUPLICATE_INVOICE false-positive fixed, found live testing AS2-135/136/137
+
+Uploading a second real Apex Logistics invoice (INV-448821, $4,531) to verify the AS2-135/136/137 extraction fix chain surfaced a new bug: it was flagged `DUPLICATE_INVOICE` against the existing seed invoice (INV-908776, $6,020.50) despite different amounts, dates, and charge lines entirely. Root cause: `findDuplicateInvoiceForCarrier` checked only "does any other invoice exist for this carrier at all" - guaranteed a false positive on every carrier's second-ever invoice. Confirmed live via direct query against `wim_dev`, not by inspection.
+
+Real `invoice_number` collisions are already impossible (`uq_invoices_tenant_number`), so that was never a candidate signal - the actual pattern this reason code should catch is the same freight re-billed under a *different* invoice number, which needs a real shipment link (PRO#/BOL#), not built yet (AS2-126).
+
+**Fix (commit `c19fd39`, AS2-138):** tightened to same carrier + same `total_payable` + `invoice_date` within a 3-day window. Still a heuristic proxy until AS2-126's real shipment resolver lands - documented as such in the code, not silently papered over. `invoiceForMatchSchema` gained `total_payable`; `loadInvoice`'s select and the `match-overbilling.ts` call site updated to match.
+
+**Verification:** built/tested in the fast cloud scratch clone (device-bridge mount still unusable for `node_modules`-scale work, same standing trap). `@delta/shared` build clean, `tsc --noEmit` clean on `agent-reconciliation`, full suite 157/157 (2 new regression tests: same-carrier-different-amount no longer flags, same-carrier-same-amount-near-date still does).
+
+**Live-verified 2026-09-21:** Venkatesh pushed `c19fd39` to `origin/main` and restarted all 3 local processes. `agent-reconciliation`'s reconciliation for INV-448821 was recomputed via `POST /api/match-overbilling` and the result confirmed directly against `wim_dev` (not just the API response): `DUPLICATE_INVOICE` is gone. New result is `variance` / `weight_discrepancy` (billed weight exceeds shipment's declared weight, -$5,350) - a real, different finding, not another false positive.
+
+**Linear:** AS2-138 closed, commit SHA `c19fd39` and live-verification result recorded in the ticket, tech-debt label (real fix is still AS2-126).
+
+**Repo state:** commit `c19fd39` pushed to `origin/main`. AS2-138 fully closed end-to-end.
+
+**New, unrelated observation from the live-verified run (not investigated):** the recomputed INV-448821 result's `charge_outcomes` lists both `rate_unresolved` and `rate_mismatch` together - worth a look, not blocking for the demo.
+
+## 2026-09-21 (continued) - AS2-139: reconciliations gains a supersede invariant (production-grade, not a quick patch)
+
+The live-verification re-run above (calling `POST /api/match-overbilling` a second time for INV-448821) surfaced a second, separate bug: `reconciliations` had no notion of "current vs. historical" result for an invoice - every `matchOverbilling`/`matchDeduction` run just inserted a new row, forever. My manual re-run created a second row instead of replacing the first, and `apps/web/src/lib/dashboard.ts` sums every row for the tenant with no filter, so the dashboard showed $11,402 at risk instead of the correct $6,871 (double-counting the superseded row). The normal path (`reconciliation-poller.ts`) never re-triggers for an already-processed extraction, so this was latent until something manually re-triggered it - a real retry/webhook path later would have hit the same gap.
+
+Venkatesh's direction: "let us not take shortcuts - let us make production grade changes" - so the fix is a real DB invariant, not a delete of the bad row.
+
+**Fix (commit `e70586e`, AS2-139):**
+- Migration `20260921231229_reconciliation_supersede.sql`: `reconciliations` gains `superseded_at`/`superseded_by` (never deleted - same "corrections supersede" convention CLAUDE.md already requires for `match_links`, applied here too), a partial unique index `ux_reconciliations_current_per_invoice` enforcing "at most one current row per (tenant_id, invoice_id)" as a real DB invariant, and `fn_insert_reconciliation` - now the only path allowed to write a new reconciliation row, atomically superseding any existing current row first (old row marked non-current before the new one is inserted, so the unique index is never transiently violated).
+- Same migration backfills the two pre-existing duplicate rows for INV-448821 (superseded, not deleted) - confirmed live: the old `DUPLICATE_INVOICE` row is now `superseded_by` the current `weight_discrepancy` row.
+- `queries.ts`'s `insertReconciliation` now calls the RPC instead of inserting into `reconciliations` directly.
+- `apps/web/src/lib/dashboard.ts` now filters `.is("superseded_at", null)` - this is what actually fixes the dashboard double-count.
+- `apps/web/src/lib/reconciliation-detail.ts` + the detail page (`reconciliations/[id]/page.tsx`) now surface a "superseded, see current result" banner rather than silently showing a stale row to anyone with an old link.
+
+**Verified:** `@delta/shared` build clean, `tsc --noEmit` clean on both `agent-reconciliation` and `web` (no web test suite exists - `typecheck` only, so this side relies on `tsc` plus the DB-level invariant), full suite 159/159 (2 new regression tests on `insertReconciliation`'s RPC call/param mapping, on top of AS2-138's 2). Migration applied live against `wim_dev` via the Supabase MCP tool and confirmed via direct query.
+
+**Linear:** AS2-139 filed, tech-debt label.
+
+**Repo state:** commit `e70586e` local on `main`, not yet pushed - needs `git push origin main` from Venkatesh's own terminal, same standing limitation.
+
+## 2026-09-21 (continued) - Venkatesh away from laptop; autonomous cleanup pass (Rule 10: test-gated, no schema/spend risk)
+
+Venkatesh stepped away before pushing; asked to "continue with the build." Per Rule 10 (autonomous, test-gated ticket queue - stops only for spend, schema risk, or genuinely ambiguous scope), picked up small, well-scoped, already-filed tech-debt tickets that don't need his live machine to verify. Deliberately did NOT touch AS2-126 (real PRO#/BOL# shipment resolver) - well-scoped but touches the extraction pipeline, which AS2-126's own ticket text already flags as needing careful re-verification time this session doesn't have unattended; correctly left for a session where Venkatesh can sanity-check live.
+
+**Triaged, not a bug:** the `rate_unresolved` + `rate_mismatch` combination flagged as an open question in the AS2-139 entry above is expected behavior, confirmed against `wim_dev` - `chargeOutcomes` is one entry per invoice charge line, and INV-448821 has two separate `freight` lines ($3,200 and $140); one resolves against a contract line (mismatch), the other doesn't (unresolved). No code change needed.
+
+**DELTA_DECISIONS.md merge-conflict markers resolved** (flagged at session start, never fixed until now): `<<<<<<< Updated upstream` / `=======` / `>>>>>>> Stashed changes` around the 2026-09-14 entries - the "Updated upstream" side was empty, so the fix was mechanical (keep the "Stashed changes" content, drop all three marker lines). No content lost.
+
+**AS2-106 + AS2-107 fixed together, commit `dea5c92`** (both small, same file, both defensive hardening on `classifyMatchRows` in `packages/shared/src/matching/classify.ts`):
+- AS2-106: `.startsWith("exact")` replaced with an explicit `EXACT_MATCH_TIERS` allowlist (`exact`, `exact_line`, `exact_header`, `exact_bol`, `exact_pro`, `exact_load` - the real, closed set the three SQL match functions in `20260909000003_document_matching_functions.sql` actually emit). Guards against a future tier name that merely starts with "exact" being silently treated as confident.
+- AS2-107: `classifyMatchRows` now throws a clear `TypeError` on a non-array payload instead of an obscure downstream error from `.length`/`.filter`. Every current call site already guards this via `Array.isArray(data) ? data : []` on the raw RPC result (confirmed by reading `document-matching.ts`), so this is defense-in-depth on the shared library function, not a fix to an active bug.
+
+**Verified:** `@delta/shared` build clean, `tsc --noEmit` clean on `agent-ingestion`/`agent-reconciliation`/`agent-interface`/`web`, full suites green - `@delta/shared` 72/72 (3 new classify.ts tests), `agent-ingestion` 61/61 (unchanged), `agent-reconciliation` 159/159 (unchanged). Built/tested in the fast cloud scratch clone per the standing workflow.
+
+**Not done, left for Venkatesh:** git push (this session still has no GitHub credentials - now 4 commits deep: `c19fd39`, `e70586e`, `b3085bf`, `dea5c92`); the unrelated uncommitted work in the tree (`tolerance.ts`, `tolerance-config.ts`, the new settings page, migration `20260918000003_invoice_source_document.sql`) - still untouched, still his call; AS2-126 real fix - deliberately deferred, see above.
+
+## 2026-09-21 (continued) - AS2-122: unknown-tenant blobs quarantined instead of lost (still Venkatesh away, continuing Rule 10 pass)
+
+Real defect, found 2026-09-20: three documents uploaded under a tenant_id that was never seeded sat in `incoming/` forever - the poller logged "unknown tenant_id - skipping" once (deduped) and moved on, no other trace. `ingestion_failures` structurally can't record it (`tenant_id` is `NOT NULL` with an FK).
+
+**Fix (commit `a17eb07`, AS2-122):** `quarantineUnknownTenantBlobs` (new, exported from `poller.ts`) moves each file from `incoming/<tenant_id>/` to `error/unknown-tenant/<tenant_id>/` via the existing `moveBlob` helper (same copy+delete-on-success pattern `extraction-handler.ts` already uses for its own error/ moves - a failed copy leaves the source in place, never silently lost), logging each one at ERROR level with the destination path. A per-file failure doesn't abort the rest of the tenant's files - logged and left for the next poll cycle.
+
+**Notable side effect:** `poller.ts` had zero test coverage before this - nothing in the file was exported, unlike `extraction-handler.ts`'s `runExtraction`/`ExtractionIO` split. Exported the new function and added `poller.test.ts` (4 tests), mocking `@delta/shared`'s `getDocumentsContainer`/`moveBlob` narrowly (spread the real module, override only those two) since this file calls real Azure/Supabase clients inline with no injectable IO - deliberately did not attempt a bigger DI refactor of the rest of the file, out of scope for this ticket.
+
+**Verified:** `tsc --noEmit` clean across the full workspace (`pnpm -r run typecheck`), `agent-ingestion` 65/65 (4 new). **Not live-verified against real Azurite** - needs Venkatesh to create an unseeded-tenant blob on his machine and confirm it lands in `error/unknown-tenant/`. Linear AS2-122 left **In Progress**, not Done, for exactly that reason.
+
+**Repo state:** commit `a17eb07` local on `main`, not yet pushed - 6 commits deep now (`c19fd39`, `e70586e`, `b3085bf`, `dea5c92`, `24b39ed`, `a17eb07`). Needs `git push origin main` from Venkatesh's own terminal.
+
+**Also found, not touched:** the working tree has other uncommitted, unrelated in-progress work (`packages/shared/src/schemas/tolerance.ts` modified, a new `apps/web/src/lib/tolerance-config.ts` + settings page untracked, an unapplied migration `supabase/migrations/20260918000003_invoice_source_document.sql`) - none of it touched by this fix, flagged so it isn't lost track of.
+

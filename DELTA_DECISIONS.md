@@ -2,8 +2,6 @@
 
 Durable architecture/scope decisions. Each entry: what was decided, why, and who/when. Newest first.
 
-<<<<<<< Updated upstream
-=======
 ## 2026-09-14 — Raw-Material Supplier persona/table added, reversing the 2026-09-02 "no supplier role" decision; "party"/"counterparty" banned as terminology
 
 Raised by Venkatesh while reviewing UI personas for the reconciliation dashboard (Cowork session, AS2-22 follow-on). Two separate decisions landed together:
@@ -25,7 +23,6 @@ Code found in the repo (not written in a Cowork session — landed 2026-09-14 ~1
 - **Scope match against AS2-102's Done-When:** first checkbox ("poller.ts calls the extraction handler via HTTP instead of publishing to ingestion-topic") is implemented. NOT yet confirmed: end-to-end local verification via Azurite, no regression to tested business logic (no test run evidence found alongside this code), and this DELTA_STATE.md update itself was outstanding until now.
 - **Linear/doc gap:** AS2-102 was left in Backlog status with no comments or checkbox updates despite this code landing — corrected in this update.
 
->>>>>>> Stashed changes
 ## 2026-09-09 — Freight Overbilling schema hardened to near-production realism; Deduction mode explicitly deferred
 
 Raised by Venkatesh after reviewing an external (Perplexity-generated) standalone freight-audit DB schema and pushing back hard on demo-grade design: "I dont want our db to for a demo purpose having 3 or 5 columns per table that cannot meet real world requirements" / "I want the application to be ready to solve real world problems... check the internet (SAP or Oracle implementation), reddit forums and enhance the db schema."

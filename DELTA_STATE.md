@@ -387,3 +387,39 @@ Added new subsection **4.6b Charge classification taxonomy — nine categories, 
 ## 2026-09-21 (continued) — Architecture doc: full 74-row taxonomy table added
 
 Venkatesh asked for the category/subcategory names themselves in the document, not just the scope narrative. Added **EXHIBIT 9a** — a 4-column table (Category, Subcategory code, Label, Engine bucket) covering all 74 codes across the 9 categories — to both `DELTA_Architecture_1.md` (markdown table) and `.docx` (real Word table, borders added via XML since this document has no named table styles defined to reuse), placed directly after the 4.6b narrative and before 4.7 Relationships. Verified row-by-row against `charge-taxonomy.ts` (75 rows incl. header, 74 data rows, spot-checked category boundaries).
+
+## 2026-09-21 (continued) — AS2-135: fixed markdown-fenced JSON silently discarding extraction results
+
+Found while walking Venkatesh through his first local click-through of the pipeline (Azurite/agent-ingestion troubleshooting this session). Live SQL check against the demo Supabase project showed an extraction marked `status: "completed"` with zero `extraction_fields` rows. Root cause: Tier 3 vision model (`inclusionai/ling-3.0-flash-vl:free`) returned a fully correct extraction wrapped in \`\`\`json fences; `parseAiExtractionResponse` (`extraction-handler.ts`) did a bare `JSON.parse`, threw on the fence, and silently treated the whole response as "nothing found." This was a known-but-unfixed gap — a 2026-09-14 comment on the same function (AS2-102) already documented discovering this exact failure mode, but only added logging, never a real fix.
+
+**Fix:** try raw content first, then a single leading/trailing fence-stripped version, before falling back to the "no fields found" warning. Only strips a fence wrapping the entire response — a fence embedded mid-reply alongside real prose still correctly fails as malformed output.
+
+**Verification:** `tsc --noEmit` clean, full `agent-ingestion` suite 61/61 passing (60 pre-existing + 1 new regression test using the real fenced-JSON shape). **Not yet verified against the original failing document end-to-end** — Venkatesh needs to restart agent-ingestion's Functions host (`func start` doesn't hot-reload a TS rebuild) and re-upload the same invoice.
+
+**Linear:** AS2-135 created and closed same session (retroactive, per Rule 10's hotfix-ticket exemption) with the commit SHA in the ticket body, per Rule 9.
+
+**Repo state: 14 commits now local on `main`, unpushed** — this session's commit `dbced1a` added to the 13 from earlier today. Needs `git push origin main` from Venkatesh's own terminal — worth doing soon, this is getting deep.
+
+## 2026-09-21 (continued) — AS2-136: fixed maxTokens truncation, the second real bug found retesting AS2-135
+
+Venkatesh restarted agent-ingestion and re-uploaded the same invoice to verify AS2-135. The parser fix worked correctly, but `extraction_fields` was still empty — a different failure this time. The terminal log's `raw_content_preview` showed a genuine, well-formed JSON array that stopped mid-object with no closing bracket or fence: the model hit `CallOptions.maxTokens`'s 2048 default (`openrouter.ts`) before finishing. A header-only invoice's ~6 fields fit in 2048 tokens; this real invoice (7 lines, 6 charge categories) did not. Genuine truncation, not malformed output — AS2-135's fix correctly had nothing valid to recover.
+
+**Fix:** `extraction-handler.ts` — `EXTRACTION_MAX_TOKENS = 4096`, passed to both the Tier 2 (`callOpenRouter`) and Tier 3 (`callOpenRouterVision`) extraction calls.
+
+**Verification:** `tsc --noEmit` clean, full `agent-ingestion` suite 61/61 passing. No new test added — this fix has no branch logic to unit test (the option is either passed or not); verification is the real end-to-end retry. **Not yet verified against the original document** — reset the same `extractions` row to `failed` again so the next re-upload retries with both fixes in place.
+
+**Linear:** AS2-136 created and closed same session (retroactive, per Rule 10's hotfix exemption) with the commit SHA, per Rule 9.
+
+**Repo state: 15 commits now local on `main`, unpushed** — this session added `dbced1a` (AS2-135) and `01d07e6` (AS2-136) to the 13 from earlier today. Needs `git push origin main` — 15 deep now, should not wait much longer.
+
+## 2026-09-21 (continued) — AS2-137: fixed the timeout AS2-136 introduced, third fix in the same real-invoice retest chain
+
+Retesting AS2-136 on the same Apex Logistics invoice, extraction now failed outright after 137665ms: "OpenRouter call timed out after 45000ms" x3. Direct consequence of AS2-136 — raising EXTRACTION_MAX_TOKENS to 4096 fixed the truncation, but the free-tier vision model (inclusionai/ling-3.0-flash-vl:free) takes proportionally longer to generate the larger response, exceeding CallOptions' 45s-per-attempt default on all 3 retries.
+
+**Fix:** `extraction-handler.ts` — `EXTRACTION_TIMEOUT_MS = 90_000`, passed as `timeoutMs` alongside `maxTokens` on both Tier 2 and Tier 3 extraction calls.
+
+**Verification:** `tsc --noEmit` clean, 61/61 passing. **Not yet verified end-to-end** — this is the third fix surfaced from retesting the same real invoice (AS2-135 parser → AS2-136 token cap → AS2-137 timeout). Reset the same `extractions` row to `failed` again for the next retry.
+
+**Linear:** AS2-137 created and closed same session with the commit SHA.
+
+**Repo state: 16 commits now local on `main`, unpushed** — `63eadbc` (AS2-137) added to the 15 from earlier. `git push origin main` is now overdue — recommend doing it before the next round of testing, not after.

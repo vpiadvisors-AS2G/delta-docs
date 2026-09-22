@@ -491,3 +491,30 @@ Real defect, found 2026-09-20: three documents uploaded under a tenant_id that w
 
 **Also found, not touched:** the working tree has other uncommitted, unrelated in-progress work (`packages/shared/src/schemas/tolerance.ts` modified, a new `apps/web/src/lib/tolerance-config.ts` + settings page untracked, an unapplied migration `supabase/migrations/20260918000003_invoice_source_document.sql`) - none of it touched by this fix, flagged so it isn't lost track of.
 
+
+
+## 2026-09-22 — AS2-85: tenant isolation audit (Done, no code changes)
+
+Ran a full tenant-isolation audit against live `wim_dev` (all 88 tables in
+`public` schema): tenant_id column present + NOT NULL, RLS enabled + forced,
+at least one tenant-scoped policy.
+
+Result: 86/88 fully compliant. 2 documented, legitimate exceptions:
+- `model_pricing` — platform-wide AI pricing data, not customer data. No
+  tenant_id, no RLS by design (confirmed via its own migration comment,
+  20260831000002_model_pricing.sql).
+- `tenants` — the root tenant table itself, can't self-reference the way
+  child tables do. No tenant_id column, but RLS enabled/forced with its own
+  self-scoping policy.
+
+No cross-tenant leak risk found. No code/schema changes needed — audit
+itself was the deliverable. Linear AS2-85 closed Done.
+
+Also this batch (autonomous, user away from laptop, Rule 10):
+- AS2-113: researched Node 24 GA status for Azure Functions — found a real
+  Linux Consumption plan caveat (not previously documented). Research only,
+  no code change.
+- AS2-83, AS2-82: both investigated against current code and found already
+  fixed by later, differently-scoped work (LruSeenSet for AS2-83; AS2-13
+  extraction-failure handling for AS2-82). Closed stale/superseded in
+  Linear rather than re-implementing redundant fixes.

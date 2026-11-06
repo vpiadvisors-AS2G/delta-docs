@@ -5,19 +5,25 @@ Rules that apply to every session. Read this first.
 ## Spend
 - No provisioning of any infrastructure, and no spend of any kind, without 
   Venkatesh's explicit approval. No exceptions.
-- Current spend: $0/month. Nothing has been deployed. Linear free plan, 
-  Supabase free tier, no Azure resources exist.
+- Current spend: intended $0/month (free tiers). As of 2026-11-05 the Azure dev
+  footprint exists (resource group rg-valoraiq-dev, Container Apps environment
+  cae-valoraiq-dev, Entra External ID tenant, GHCR); no app is serving there yet
+  and no monthly ceiling is set on record. Linear free plan, Supabase free tier.
 - Projected: ~$13/month for the Azure production footprint once approved. 
   Development is local and free.
 
 ## Technical
-- All-Azure for deployment: Azure Functions v4 (Node 20), App Service, 
-  Front Door + WAF, Service Bus, Blob Storage, Key Vault.
+- All-Azure for deployment: Azure Functions v4 (Node 20) for the agents; the web
+  app runs as a container on Azure Container Apps (not App Service, not AKS;
+  2026-11-05); Service Bus, Blob Storage. Front Door + WAF and Key Vault are
+  planned and NOT provisioned (dev uses GitHub/Container Apps secrets and TLS at
+  the Container Apps ingress). Images in GHCR. Login = Entra External ID tenant.
 - Supabase Postgres for data (free tier, RLS). Azure Database for PostgreSQL 
   is migration target only — not currently deployed.
 - Portability contract: no Supabase-proprietary features outside 
   lib/shared/supabase_client and one RLS claim-helper (current_tenant_id()).
-- TypeScript everywhere. Node 20 Functions, Next.js 14, shared Zod schemas.
+- TypeScript everywhere. Node 20 Functions, Node >= 22.13 for the web image and
+  tooling (pnpm 11.24.0 needs it), Next.js 14, shared Zod schemas.
 - Multi-tenant: tenant_id NOT NULL + CHECK + RLS on every table, no exceptions.
 - Composite FKs on every child table: UNIQUE(tenant_id, id) on parent, 
   FOREIGN KEY(tenant_id, col) on child. Never single-column FK to id alone.

@@ -48,3 +48,45 @@ AS2-66 (Service Bus) approved by Venkatesh at Standard tier — real cost ~$13/m
 - **AS2-96 is done** — `classify-doc-type.ts` had two bugs: unweighted raw pattern-count scoring favored doc types with more listed patterns over more-specific matches, and filename-only classification (no-OCR-text documents) broke on `\b`-anchored regex against underscore-separated filenames. Weighted+normalized scoring plus filename normalization fixed both. All 10/10 real-doc harness fixtures now classify correctly. See [[DELTA_STATE]] for full detail.
 - **Confirmed NOT related to AS2-96**: the Tier-1 70% coverage threshold letting a clean PO (Doc 1) complete despite a missing `retailer_identifier` field is a `completeness.ts` threshold-tuning question, independent of classification. Still open, not scoped as a ticket yet — revisit if it starts causing real false-completes.
 - **Note: AS2-92 landed directly on `main`**, not merged via a PR — done in an earlier terminal session outside the usual flow. Flagging as a CLAUDE.md Rule 9 exception worth being aware of, not a fresh action item.
+
+
+## 2026-09-22 — SDLC parallelization: Codex takes hardening/tech-debt queue, Claude stays on demo click-through
+
+Two days from the 9/24 demo. A Codex CLI review of the repo surfaced real findings (verified
+independently, not taken at face value — one claim, `model_pricing` tenant-scoping, was wrong;
+`model_pricing` is confirmed intentional platform data, see [[DELTA_STATE]] 2026-09-22 AS2-85).
+Split work to run two AI sessions in parallel without collisions:
+
+**Codex owns (does not touch anything Claude is verifying this week):**
+1. Dispute IDOR fix — `apps/web/src/app/(app)/documents/[id]/actions.ts` `openDispute`: no
+   tenant-ownership check on the client-supplied `documentId` before insert; two separate
+   non-transactional inserts (disputes + dispute_items) can orphan a row on partial failure.
+2. `.gitignore` the `.env.local.bak-*` pattern; confirm none already tracked in history.
+3. Delete dead code: `apps/web/src/app/(app)/nav-tab.tsx` (unused duplicate of `nav-item.tsx`).
+4. Redact raw Postgres error text returned to the UI across `apps/web/src/app/**/actions.ts`.
+5. Deduction matching perf — `match-deduction-compute.ts`'s `findOrderLineCandidates`: repeated
+   linear scan over order lines per invoice line, replace with a pre-built Map.
+6. AS2-119 (moduleResolution=Node hard error under TS 5.9.3) — already filed.
+7. AS2-84 (poller seen-set query at scale) — already filed.
+8. Cursor pagination on documents/review-queue lists (currently fixed 200-row limit) — Codex to
+   confirm exact files first, not yet independently verified this session.
+9. New regression tests for all of the above (cross-tenant forged-ID, transaction rollback,
+   invalid money/UUID input, pagination).
+
+Items 1-5, 8, 9 are real findings but have no Linear ticket yet — not filed as of this entry,
+Venkatesh's call whether to formalize them in Linear.
+
+**Explicitly held back from Codex, needs Venkatesh's decision or the live machine first:**
+- AS2-120 (confidence score) — pending product decision, still open from earlier this session.
+- AS2-126 (real PRO#/BOL# shipment resolver) — touches the extraction pipeline, too risky to
+  hand off unattended per the same standard already applied to autonomous Claude sessions.
+- AS2-121 (env file consolidation) — real risk of breaking the live, demo-verified local env
+  two days out. Hold until after 9/24.
+
+**Claude stays on:** the 6-step demo script's first-ever real browser click-through (via Claude
+in Chrome against Venkatesh's own running local stack), not started as of this entry.
+
+Coordination rule: Codex works on a separate branch, does not push to `main` directly (repo
+convention, see CLAUDE.md), and does not touch any file under `apps/web/src/app/(app)/upload`,
+`apps/web/src/app/(app)/page.tsx` (dashboard), or `apps/web/src/app/(app)/reconciliations` while
+Claude's click-through pass is in progress, to avoid merge conflicts mid-verification.
